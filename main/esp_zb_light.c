@@ -2,19 +2,34 @@
 #include "freertos/task.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include "ha/esp_zigbee_ha_standard.h"
-#include "zcl/esp_zigbee_zcl_common.h"
 #include "driver/gpio.h"
 #include "zboss_api.h"
-#include "esp_zb_light.h"
+
 #include "light_driver.h"
 
-static const char *TAG = "ESP_ZB_CEILING_LIGHT";
+/* Zigbee configuration */
+#define INSTALLCODE_POLICY_ENABLE       false   /* enable the install code policy for security */
+#define ESP_ZB_PRIMARY_CHANNEL_MASK     ESP_ZB_TRANSCEIVER_ALL_CHANNELS_MASK  /* Zigbee primary channel mask use in the example */
+#define MAX_CHILDREN                    10      /* the max amount of connected devices */
+
+#define OTA_UPGRADE_MANUFACTURER        0x1001                                /* The attribute indicates the file version of the downloaded image on the device*/
+#define OTA_UPGRADE_IMAGE_TYPE          0x1011                                /* The attribute indicates the value for the manufacturer of the device */
+#define OTA_UPGRADE_FILE_VERSION        0x01010101                            /* The attribute indicates the file version of the running firmware image on the device */
+#define OTA_UPGRADE_HW_VERSION          0x0101                                /* The parameter indicates the version of hardware */
+#define OTA_UPGRADE_MAX_DATA_SIZE       64                                    /* The parameter indicates the maximum data size of query block image */
+
+#define MODEL_NAME                      "CeilingCW"
+#define MANUFACTURER_NAME               "GinKage"
+#define FIRMWARE_VERSION                "v1.0"
 
 static char model_id[16];
 static char manufacturer_name[16];
 static char firmware_version[16];
+
+esp_timer_handle_t timer_handle;
 
 #define LED_COMMISSION GPIO_NUM_8
 
@@ -59,9 +74,12 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
         if (err_status == ESP_OK) {
             ESP_LOGI(TAG, "Device started up in %s factory-reset mode", esp_zb_bdb_is_factory_new() ? "" : "non");
             if (esp_zb_bdb_is_factory_new()) {
+                light_set_defaults();
                 ESP_LOGI(TAG, "Start network steering");
                 esp_zb_bdb_start_top_level_commissioning(ESP_ZB_BDB_MODE_NETWORK_STEERING);
             } else {
+                gpio_set_level(LED_COMMISSION, 1);
+                light_load_settings();
                 ESP_LOGI(TAG, "Device rebooted");
             }
         } else {
@@ -112,12 +130,13 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
         case ESP_ZB_ZCL_CLUSTER_ID_ON_OFF:
             if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_BOOL) {
                 bool light_state = message->attribute.data.value ? *(bool *)message->attribute.data.value : ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE;
-                ESP_LOGI(TAG, "Light sets to %s", light_state ? "On" : "Off");
+                ESP_LOGI(TAG, "New state: %s", light_state ? "On" : "Off");
                 light_set_on_off(light_state);
             }
             if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_START_UP_ON_OFF && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_8BIT_ENUM) {
-                uint8_t state = message->attribute.data.value ? *(uint8_t *)message->attribute.data.value : ZB_ZCL_ON_OFF_START_UP_ON_OFF_IS_OFF;
-                ESP_LOGI(TAG, "New state: %d", (int)state);
+                uint8_t state = message->attribute.data.value ? *(uint8_t *)message->attribute.data.value : ZB_ZCL_ON_OFF_START_UP_ON_OFF_IS_ON;
+                ESP_LOGI(TAG, "New startup state: %d", (int)state);
+                light_set_startup_on_off(state);
             }
             break;
 
@@ -125,6 +144,7 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
             if (message->attribute.id == ESP_ZB_ZCL_ATTR_LEVEL_CONTROL_CURRENT_LEVEL_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U8) {
                 uint8_t brightness = message->attribute.data.value ? *(uint8_t *)message->attribute.data.value : ESP_ZB_ZCL_LEVEL_CONTROL_CURRENT_LEVEL_DEFAULT_VALUE;
                 ESP_LOGI(TAG, "New brightness: %d", (int)brightness);
+                light_set_level(brightness);
             }
             break;
 
@@ -132,13 +152,12 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
             if (message->attribute.id == ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_TEMPERATURE_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U16) {
                 uint16_t temperature = message->attribute.data.value ? *(uint16_t *)message->attribute.data.value : ESP_ZB_ZCL_COLOR_CONTROL_COLOR_TEMPERATURE_DEF_VALUE;
                 ESP_LOGI(TAG, "New temperature: %d", (int)temperature);
+                light_set_temperature(temperature);
             }
             if (message->attribute.id == ESP_ZB_ZCL_ATTR_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_MIREDS_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U16) {
-                uint16_t temperature = message->attribute.data.value ? *(uint16_t *)message->attribute.data.value : ESP_ZB_ZCL_COLOR_CONTROL_COLOR_TEMPERATURE_DEF_VALUE;
-                if (temperature == 0xffff) {
-                    temperature = 0; // "previous"
-                }
+                uint16_t temperature = message->attribute.data.value ? *(uint16_t *)message->attribute.data.value : ZB_ZCL_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_USE_PREVIOUS_VALUE;
                 ESP_LOGI(TAG, "New startup temperature: %d", (int)temperature);
+                light_set_startup_temperature(temperature);
             }
             break;
         }
@@ -169,7 +188,13 @@ static void set_zcl_string(char *buffer, char *value) {
 
 static void esp_zb_task(void *pvParameters)
 {
-    esp_zb_cfg_t zb_nwk_cfg = ESP_ZB_ZR_CONFIG();
+    esp_zb_cfg_t zb_nwk_cfg = {
+        .esp_zb_role = ESP_ZB_DEVICE_TYPE_ROUTER,
+        .install_code_policy = INSTALLCODE_POLICY_ENABLE,
+        .nwk_cfg.zczr_cfg = {
+            .max_children = MAX_CHILDREN,
+        }
+    };
     esp_zb_init(&zb_nwk_cfg);
 
     esp_zb_color_dimmable_light_cfg_t light_cfg = ESP_ZB_DEFAULT_COLOR_DIMMABLE_LIGHT_CONFIG();
@@ -214,6 +239,7 @@ static void esp_zb_task(void *pvParameters)
         .ota_upgrade_manufacturer = OTA_UPGRADE_MANUFACTURER,
         .ota_upgrade_image_type = OTA_UPGRADE_IMAGE_TYPE,
     };
+    esp_zb_attribute_list_t *esp_zb_ota_client_cluster = esp_zb_ota_cluster_create(&ota_cluster_cfg);
 
     /** add client parameters to ota client cluster */
     esp_zb_zcl_ota_upgrade_client_variable_t ota_variable_config  = {
@@ -221,8 +247,6 @@ static void esp_zb_task(void *pvParameters)
         .hw_version = OTA_UPGRADE_HW_VERSION,                           /* version of hardware */
         .max_data_size = OTA_UPGRADE_MAX_DATA_SIZE,                     /* maximum data size of query block image */
     };
-
-    esp_zb_attribute_list_t *esp_zb_ota_client_cluster = esp_zb_ota_cluster_create(&ota_cluster_cfg);
     esp_zb_ota_cluster_add_attr(esp_zb_ota_client_cluster, ESP_ZB_ZCL_ATTR_OTA_UPGRADE_CLIENT_DATA_ID, &ota_variable_config);
 
     esp_zb_cluster_list_t *esp_zb_zcl_cluster_list = esp_zb_zcl_cluster_list_create();
@@ -251,11 +275,23 @@ static void esp_zb_task(void *pvParameters)
     esp_zb_main_loop_iteration();
 }
 
+void timer_callback(void *arg)
+{
+    ESP_LOGI(TAG, "Successful boot, reset counter");
+    ESP_ERROR_CHECK(esp_timer_delete(timer_handle));
+
+    nvs_handle_t my_handle;
+    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
+    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "reboot", 0));
+    ESP_ERROR_CHECK(nvs_commit(my_handle));
+    nvs_close(my_handle);
+}
+
 void app_main(void)
 {
     esp_zb_platform_config_t config = {
-        .radio_config = ESP_ZB_DEFAULT_RADIO_CONFIG(),
-        .host_config = ESP_ZB_DEFAULT_HOST_CONFIG(),
+        .radio_config = { .radio_mode = ZB_RADIO_MODE_NATIVE },
+        .host_config = { .host_connection_mode = ZB_HOST_CONNECTION_MODE_NONE },
     };
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
@@ -269,7 +305,17 @@ void app_main(void)
 	ESP_ERROR_CHECK(gpio_config(&gpio_output_config));
 	gpio_set_level(LED_COMMISSION, 1);
 
-    ledc_init();
+    light_init();
+
+    esp_timer_create_args_t timer_cfg = {
+        .callback = timer_callback,
+        .arg = &timer_handle,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "FR timer",
+        .skip_unhandled_events = false
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&timer_cfg, &timer_handle));
+    ESP_ERROR_CHECK(esp_timer_start_once(timer_handle, 5000000));
 
     xTaskCreate(esp_zb_task, "Zigbee_main", 4096, NULL, 5, NULL);
 }

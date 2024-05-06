@@ -5,6 +5,15 @@
   "idf.portWin": "COM7",
   "files.associations": {
     "esp_zigbee_ha_standard.h": "c",
-    "esp_zb_light.h": "c"
+    "esp_zb_light.h": "c",
+    "esp_log.h": "c",
+    "task.h": "c",
+    "nvs_flash.h": "c",
+    "esp_zigbee_zcl_common.h": "c",
+    "esp_zigbee_zcl_identify.h": "c",
+    "esp_zigbee_core.h": "c",
+    "zb_vendor.h": "c",
+    "zb_config_platform.h": "c",
+    "esp_zigbee_attribute.h": "c"
   }
 }
