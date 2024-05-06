@@ -1,0 +1,21 @@
+dependencies:
+  espressif/esp-zboss-lib:
+    component_hash: 21adf29145975d0f7af5bd7361af993d8ddaa88aaaf22461a3014dbfc2c11521
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.3.1
+  espressif/esp-zigbee-lib:
+    component_hash: 6d458805678838acef528b0443d04684cfe28ef0739c9d632ccfe7b228392295
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.3.1
+  idf:
+    component_hash: null
+    source:
+      type: idf
+    version: 5.2.1
+manifest_hash: 35c84588b0073b3d31e38feb3687705b87511e60945ae3584968a8b5b87507f0
+target: esp32c6
+version: 1.0.0
