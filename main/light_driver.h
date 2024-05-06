@@ -26,6 +26,10 @@ void light_set_defaults();
 
 void light_load_settings();
 
+void light_publish_state();
+
+void light_boot_success();
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

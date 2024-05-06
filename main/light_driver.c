@@ -24,12 +24,12 @@
 
 static const uint32_t max_duty = 8192;
 
-static bool current_power;
-static uint8_t current_level;
-static uint16_t current_temperature;
-static enum zb_zcl_on_off_start_up_on_off_e start_power;
-static uint16_t start_temperature;
-static uint8_t reboot_count;
+static bool current_power = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE;
+static uint8_t current_level = ESP_ZB_ZCL_LEVEL_CONTROL_CURRENT_LEVEL_DEFAULT_VALUE;
+static uint16_t current_temperature = ESP_ZB_ZCL_COLOR_CONTROL_COLOR_TEMPERATURE_DEF_VALUE;
+static enum zb_zcl_on_off_start_up_on_off_e start_power = ZB_ZCL_ON_OFF_START_UP_ON_OFF_IS_ON;
+static uint16_t start_temperature = ZB_ZCL_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_USE_PREVIOUS_VALUE;
+static uint8_t reboot_count = 0;
 
 static void set_duty(ledc_channel_t channel, uint32_t duty)
 {
@@ -37,7 +37,8 @@ static void set_duty(ledc_channel_t channel, uint32_t duty)
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_MODE, channel));
 }
 
-static void update_duty() {
+static void update_duty()
+{
     if (current_power) {
         uint32_t cw, ww;
         if (current_temperature >= 370) {
@@ -63,6 +64,35 @@ static void update_duty() {
         set_duty(LEDC_CHANNEL_CW, 0);
         set_duty(LEDC_CHANNEL_WW, 0);
     }
+
+    light_publish_state();
+}
+
+static void save_state()
+{
+    nvs_handle_t my_handle;
+    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
+    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "power", current_power));
+    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "start_power", start_power));
+    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "level", current_level));
+    ESP_ERROR_CHECK(nvs_set_u16(my_handle, "temp", current_temperature));
+    ESP_ERROR_CHECK(nvs_set_u16(my_handle, "start_temp", start_temperature));
+    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "reboot", reboot_count));
+    ESP_ERROR_CHECK(nvs_commit(my_handle));
+    nvs_close(my_handle);
+}
+
+static void load_state()
+{
+    nvs_handle_t my_handle;
+    ESP_ERROR_CHECK(nvs_open("storage", NVS_READONLY, &my_handle));
+    nvs_get_u8(my_handle, "power", (uint8_t*)&current_power);
+    nvs_get_u8(my_handle, "start_power", (uint8_t*)&start_power);
+    nvs_get_u8(my_handle, "level", &current_level);
+    nvs_get_u16(my_handle, "temp", &current_temperature);
+    nvs_get_u16(my_handle, "start_temp", &start_temperature);
+    nvs_get_u8(my_handle, "reboot", &reboot_count);
+    nvs_close(my_handle);
 }
 
 void light_init(void)
@@ -104,99 +134,51 @@ void light_init(void)
 
 void light_set_on_off(bool power)
 {
-    nvs_handle_t my_handle;
-    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
-    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "power", power));
-    ESP_ERROR_CHECK(nvs_commit(my_handle));
-    nvs_close(my_handle);
-
+    ESP_LOGI(TAG, "New state: %s", power ? "On" : "Off");
     current_power = power;
+    save_state();
     update_duty();
 }
 
 void light_set_startup_on_off(uint8_t startup)
 {
-    nvs_handle_t my_handle;
-    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
-    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "start_power", startup));
-    ESP_ERROR_CHECK(nvs_commit(my_handle));
-    nvs_close(my_handle);
+    ESP_LOGI(TAG, "New startup state: %d", (int)startup);
+    start_power = startup;
+    save_state();
 }
 
 void light_set_level(uint8_t level)
 {
-    nvs_handle_t my_handle;
-    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
-    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "level", level));
-    ESP_ERROR_CHECK(nvs_commit(my_handle));
-    nvs_close(my_handle);
-
+    ESP_LOGI(TAG, "New brightness: %d", (int)level);
     current_level = level;
+    save_state();
     update_duty();
 }
 
 void light_set_temperature(uint16_t temperature)
 {
-    nvs_handle_t my_handle;
-    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
-    ESP_ERROR_CHECK(nvs_set_u16(my_handle, "temp", temperature));
-    ESP_ERROR_CHECK(nvs_commit(my_handle));
-    nvs_close(my_handle);
-
+    ESP_LOGI(TAG, "New temperature: %d", (int)temperature);
     current_temperature = temperature;
+    save_state();
     update_duty();
 }
 
 void light_set_startup_temperature(uint16_t startup)
 {
-    nvs_handle_t my_handle;
-    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
-    ESP_ERROR_CHECK(nvs_set_u16(my_handle, "start_temp", startup));
-    ESP_ERROR_CHECK(nvs_commit(my_handle));
-    nvs_close(my_handle);
+    ESP_LOGI(TAG, "New startup temperature: %d", (int)startup);
+    start_temperature = startup;
+    save_state();
 }
 
 void light_set_defaults()
 {
-    nvs_handle_t my_handle;
-    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
-    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "power", ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE));
-    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "start_power", ZB_ZCL_ON_OFF_START_UP_ON_OFF_IS_ON));
-    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "level", ESP_ZB_ZCL_LEVEL_CONTROL_CURRENT_LEVEL_DEFAULT_VALUE));
-    ESP_ERROR_CHECK(nvs_set_u16(my_handle, "temp", ESP_ZB_ZCL_COLOR_CONTROL_COLOR_TEMPERATURE_DEF_VALUE));
-    ESP_ERROR_CHECK(nvs_set_u16(my_handle, "start_temp", ZB_ZCL_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_USE_PREVIOUS_VALUE));
-    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "reboot", 0));
-    ESP_ERROR_CHECK(nvs_commit(my_handle));
-    nvs_close(my_handle);
-
+    save_state();
     light_load_settings();
 }
 
 void light_load_settings()
 {
-    nvs_handle_t my_handle;
-    ESP_ERROR_CHECK(nvs_open("storage", NVS_READONLY, &my_handle));
-    ESP_ERROR_CHECK(nvs_get_u8(my_handle, "power", (uint8_t*)&current_power));
-    ESP_ERROR_CHECK(nvs_get_u8(my_handle, "start_power", (uint8_t*)&start_power));
-    ESP_ERROR_CHECK(nvs_get_u8(my_handle, "level", &current_level));
-    ESP_ERROR_CHECK(nvs_get_u16(my_handle, "temp", &current_temperature));
-    ESP_ERROR_CHECK(nvs_get_u16(my_handle, "start_temp", &start_temperature));
-    ESP_ERROR_CHECK(nvs_get_u8(my_handle, "reboot", &reboot_count));
-    nvs_close(my_handle);
-
-    reboot_count++;
-    ESP_LOGI(TAG, "Boot attempt number %d", (int)reboot_count);
-
-    if (reboot_count > 5) {
-        ESP_LOGI(TAG, "Too many reboots, reset device");
-        esp_zb_factory_reset();
-        return;
-    }
-
-    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
-    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "reboot", reboot_count));
-    ESP_ERROR_CHECK(nvs_commit(my_handle));
-    nvs_close(my_handle);
+    load_state();
 
     if (start_temperature != ZB_ZCL_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_USE_PREVIOUS_VALUE)
         current_temperature = start_temperature;
@@ -217,16 +199,48 @@ void light_load_settings()
         break;
     }
 
-    esp_zb_zcl_set_attribute_val(HA_ESP_LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID, &current_power, false);
-    esp_zb_zcl_set_attribute_val(HA_ESP_LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_ON_OFF, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_ON_OFF_START_UP_ON_OFF, &start_power, false);
-    esp_zb_zcl_set_attribute_val(HA_ESP_LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_LEVEL_CONTROL, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_LEVEL_CONTROL_CURRENT_LEVEL_ID, &current_level, false);
-    esp_zb_zcl_set_attribute_val(HA_ESP_LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_TEMPERATURE_ID, &current_temperature, false);
-    esp_zb_zcl_set_attribute_val(HA_ESP_LIGHT_ENDPOINT, ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
-        ESP_ZB_ZCL_ATTR_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_MIREDS_ID, &start_temperature, false);
+    reboot_count++;
+    ESP_LOGI(TAG, "Boot attempt number %d", (int)reboot_count);
 
+    if (reboot_count >= 5) {
+        ESP_LOGI(TAG, "Too many reboots, reset device");
+        esp_zb_factory_reset();
+        return;
+    }
+
+    save_state();
     update_duty();
+}
+
+static void reportAttribute(uint16_t clusterID, uint16_t attributeID, void *value)
+{
+    esp_zb_zcl_report_attr_cmd_t cmd = {
+        .zcl_basic_cmd = {
+            .dst_addr_u.addr_short = 0x0000,
+            .dst_endpoint = HA_ESP_LIGHT_ENDPOINT,
+            .src_endpoint = HA_ESP_LIGHT_ENDPOINT,
+        },
+        .address_mode = ESP_ZB_APS_ADDR_MODE_16_ENDP_PRESENT,
+        .clusterID = clusterID,
+        .attributeID = attributeID,
+        .cluster_role = ESP_ZB_ZCL_CLUSTER_SERVER_ROLE,
+    };
+    esp_zb_zcl_set_attribute_val(HA_ESP_LIGHT_ENDPOINT, clusterID, ESP_ZB_ZCL_CLUSTER_SERVER_ROLE, attributeID, value, false);
+    esp_zb_zcl_report_attr_cmd_req(&cmd);
+}
+
+void light_publish_state()
+{
+    reportAttribute(ESP_ZB_ZCL_CLUSTER_ID_ON_OFF, ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID, &current_power);
+    reportAttribute(ESP_ZB_ZCL_CLUSTER_ID_ON_OFF, ESP_ZB_ZCL_ATTR_ON_OFF_START_UP_ON_OFF, &start_power);
+    reportAttribute(ESP_ZB_ZCL_CLUSTER_ID_LEVEL_CONTROL, ESP_ZB_ZCL_ATTR_LEVEL_CONTROL_CURRENT_LEVEL_ID, &current_level);
+    reportAttribute(ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_TEMPERATURE_ID, &current_temperature);
+    reportAttribute(ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL, ESP_ZB_ZCL_ATTR_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_MIREDS_ID, &start_temperature);
+}
+
+void light_boot_success()
+{
+    ESP_LOGI(TAG, "Successful boot, reset counter");
+    reboot_count = 0;
+    save_state();
 }

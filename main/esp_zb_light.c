@@ -31,6 +31,8 @@ static char firmware_version[16];
 
 esp_timer_handle_t timer_handle;
 
+static bool connected = false;
+
 #define LED_COMMISSION GPIO_NUM_8
 
 static void esp_error_blink(void *pvParameters) {
@@ -82,10 +84,12 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 light_load_settings();
                 ESP_LOGI(TAG, "Device rebooted");
             }
+            connected = true;
         } else {
             /* commissioning failed */
             ESP_LOGW(TAG, "Failed to initialize Zigbee stack (status: %s)", esp_err_to_name(err_status));
             xTaskCreate(esp_error_blink, "error task", 4096, NULL, 5, NULL);
+            connected = false;
         }
         break;
 
@@ -98,9 +102,11 @@ void esp_zb_app_signal_handler(esp_zb_app_signal_t *signal_struct)
                 extended_pan_id[7], extended_pan_id[6], extended_pan_id[5], extended_pan_id[4],
                 extended_pan_id[3], extended_pan_id[2], extended_pan_id[1], extended_pan_id[0],
                 esp_zb_get_pan_id(), esp_zb_get_current_channel(), esp_zb_get_short_address());
+            connected = true;
         } else {
             ESP_LOGI(TAG, "Network steering was not successful (status: %s)", esp_err_to_name(err_status));
             esp_zb_scheduler_alarm((esp_zb_callback_t)bdb_start_top_level_commissioning_cb, ESP_ZB_BDB_MODE_NETWORK_STEERING, 1000);
+            connected = false;
         }
         break;
 
@@ -128,37 +134,34 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
             break;
 
         case ESP_ZB_ZCL_CLUSTER_ID_ON_OFF:
-            if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_BOOL) {
-                bool light_state = message->attribute.data.value ? *(bool *)message->attribute.data.value : ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE;
-                ESP_LOGI(TAG, "New state: %s", light_state ? "On" : "Off");
-                light_set_on_off(light_state);
-            }
-            if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_START_UP_ON_OFF && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_8BIT_ENUM) {
-                uint8_t state = message->attribute.data.value ? *(uint8_t *)message->attribute.data.value : ZB_ZCL_ON_OFF_START_UP_ON_OFF_IS_ON;
-                ESP_LOGI(TAG, "New startup state: %d", (int)state);
-                light_set_startup_on_off(state);
-            }
+            if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID
+                && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_BOOL
+                && message->attribute.data.value != NULL)
+                    light_set_on_off(*(bool *)message->attribute.data.value);
+
+            if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_START_UP_ON_OFF
+                && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_8BIT_ENUM
+                && message->attribute.data.value != NULL)
+                    light_set_startup_on_off(*(uint8_t *)message->attribute.data.value);
             break;
 
         case ESP_ZB_ZCL_CLUSTER_ID_LEVEL_CONTROL:
-            if (message->attribute.id == ESP_ZB_ZCL_ATTR_LEVEL_CONTROL_CURRENT_LEVEL_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U8) {
-                uint8_t brightness = message->attribute.data.value ? *(uint8_t *)message->attribute.data.value : ESP_ZB_ZCL_LEVEL_CONTROL_CURRENT_LEVEL_DEFAULT_VALUE;
-                ESP_LOGI(TAG, "New brightness: %d", (int)brightness);
-                light_set_level(brightness);
-            }
+            if (message->attribute.id == ESP_ZB_ZCL_ATTR_LEVEL_CONTROL_CURRENT_LEVEL_ID
+                && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U8
+                && message->attribute.data.value != NULL)
+                    light_set_level(*(uint8_t *)message->attribute.data.value);
             break;
 
         case ESP_ZB_ZCL_CLUSTER_ID_COLOR_CONTROL:
-            if (message->attribute.id == ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_TEMPERATURE_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U16) {
-                uint16_t temperature = message->attribute.data.value ? *(uint16_t *)message->attribute.data.value : ESP_ZB_ZCL_COLOR_CONTROL_COLOR_TEMPERATURE_DEF_VALUE;
-                ESP_LOGI(TAG, "New temperature: %d", (int)temperature);
-                light_set_temperature(temperature);
-            }
-            if (message->attribute.id == ESP_ZB_ZCL_ATTR_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_MIREDS_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U16) {
-                uint16_t temperature = message->attribute.data.value ? *(uint16_t *)message->attribute.data.value : ZB_ZCL_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_USE_PREVIOUS_VALUE;
-                ESP_LOGI(TAG, "New startup temperature: %d", (int)temperature);
-                light_set_startup_temperature(temperature);
-            }
+            if (message->attribute.id == ESP_ZB_ZCL_ATTR_COLOR_CONTROL_COLOR_TEMPERATURE_ID
+                && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U16
+                && message->attribute.data.value != NULL)
+                    light_set_temperature(*(uint16_t *)message->attribute.data.value);
+
+            if (message->attribute.id == ESP_ZB_ZCL_ATTR_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_MIREDS_ID
+                && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_U16
+                && message->attribute.data.value != NULL)
+                    light_set_startup_temperature(*(uint16_t *)message->attribute.data.value);
             break;
         }
     }
@@ -172,6 +175,12 @@ static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id,
     switch (callback_id) {
     case ESP_ZB_CORE_SET_ATTR_VALUE_CB_ID:
         ret = zb_attribute_handler((esp_zb_zcl_set_attr_value_message_t *)message);
+        break;
+
+    case ESP_ZB_CORE_CMD_DEFAULT_RESP_CB_ID:
+        esp_zb_zcl_cmd_default_resp_message_t *msg = (esp_zb_zcl_cmd_default_resp_message_t *)message;
+        if (msg->status_code != ESP_ZB_ZCL_STATUS_SUCCESS)
+            ESP_LOGI(TAG, "Default response status: %d", msg->status_code);
         break;
 
     default:
@@ -191,9 +200,7 @@ static void esp_zb_task(void *pvParameters)
     esp_zb_cfg_t zb_nwk_cfg = {
         .esp_zb_role = ESP_ZB_DEVICE_TYPE_ROUTER,
         .install_code_policy = INSTALLCODE_POLICY_ENABLE,
-        .nwk_cfg.zczr_cfg = {
-            .max_children = MAX_CHILDREN,
-        }
+        .nwk_cfg.zczr_cfg = { .max_children = MAX_CHILDREN }
     };
     esp_zb_init(&zb_nwk_cfg);
 
@@ -277,14 +284,18 @@ static void esp_zb_task(void *pvParameters)
 
 void timer_callback(void *arg)
 {
-    ESP_LOGI(TAG, "Successful boot, reset counter");
+    light_boot_success();
     ESP_ERROR_CHECK(esp_timer_delete(timer_handle));
+}
 
-    nvs_handle_t my_handle;
-    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &my_handle));
-    ESP_ERROR_CHECK(nvs_set_u8(my_handle, "reboot", 0));
-    ESP_ERROR_CHECK(nvs_commit(my_handle));
-    nvs_close(my_handle);
+void update_attribute()
+{
+    while(1)
+    {
+        if (connected)
+            light_publish_state();
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
+    }
 }
 
 void app_main(void)
@@ -317,5 +328,6 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_timer_create(&timer_cfg, &timer_handle));
     ESP_ERROR_CHECK(esp_timer_start_once(timer_handle, 5000000));
 
+    xTaskCreate(update_attribute, "Update_attribute_value", 4096, NULL, 5, NULL);
     xTaskCreate(esp_zb_task, "Zigbee_main", 4096, NULL, 5, NULL);
 }
