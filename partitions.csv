@@ -1,8 +1,12 @@
-# Name,   Type, SubType, Offset,  Size, Flags
+# Name,     Type,   SubType,    Offset, Size,   Flags
 # Note: if you have increased the bootloader size, make sure to update the offsets to avoid overlap
-nvs,        data, nvs,      0x9000,  0x6000,
-phy_init,   data, phy,      0xf000,  0x1000,
-factory,    app,  factory,  0x10000, 650K,
-zb_storage, data, fat,      0xb3000, 16K,
-zb_fct,     data, fat,      0xb7000, 1K,
-ota_0,      app,  ota_0,    0xc0000, 650K,
+# bootloader                    4K,     28K,
+# partition table               32K,    4K,
+phy_init,   data,   phy,        36K,    4K,
+zb_fct,     data,   fat,        ,       4K,
+otadata,    data,   ota,        ,       8K,
+zb_storage, data,   fat,        ,       16K,
+nvs,        data,   nvs,        ,       24K,
+factory,    app,    factory,    ,       1024K,
+ota_0,      app,    ota_0,      ,       1024K,
+ota_1,      app,    ota_1,      ,       1024K,

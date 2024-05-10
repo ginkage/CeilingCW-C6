@@ -4,11 +4,11 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
-#include "ha/esp_zigbee_ha_standard.h"
 #include "driver/gpio.h"
 #include "zboss_api.h"
 
 #include "light_driver.h"
+#include "ota.h"
 
 /* Zigbee configuration */
 #define INSTALLCODE_POLICY_ENABLE       false   /* enable the install code policy for security */
@@ -183,6 +183,10 @@ static esp_err_t zb_action_handler(esp_zb_core_action_callback_id_t callback_id,
             ESP_LOGI(TAG, "Default response status: %d", msg->status_code);
         break;
 
+    case ESP_ZB_CORE_OTA_UPGRADE_VALUE_CB_ID:
+        ret = zb_ota_upgrade_status_handler(*(esp_zb_zcl_ota_upgrade_value_message_t *)message);
+        break;
+
     default:
         ESP_LOGW(TAG, "Receive Zigbee action(0x%x) callback", callback_id);
         break;
@@ -307,14 +311,14 @@ void app_main(void)
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
 
-	gpio_config_t gpio_output_config = {
+    gpio_config_t gpio_output_config = {
         .pin_bit_mask = (1ULL << LED_COMMISSION),
         .pull_down_en = GPIO_PULLDOWN_ENABLE,
         .pull_up_en = GPIO_PULLDOWN_DISABLE,
         .mode = GPIO_MODE_OUTPUT
-	};
-	ESP_ERROR_CHECK(gpio_config(&gpio_output_config));
-	gpio_set_level(LED_COMMISSION, 1);
+    };
+    ESP_ERROR_CHECK(gpio_config(&gpio_output_config));
+    gpio_set_level(LED_COMMISSION, 1);
 
     light_init();
 

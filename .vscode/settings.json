@@ -2,7 +2,7 @@
   "C_Cpp.intelliSenseEngine": "default",
   "idf.adapterTargetName": "esp32c6",
   "idf.flashType": "UART",
-  "idf.portWin": "COM7",
+  "idf.portWin": "COM11",
   "files.associations": {
     "esp_zigbee_ha_standard.h": "c",
     "esp_zb_light.h": "c",
@@ -14,6 +14,17 @@
     "esp_zigbee_core.h": "c",
     "zb_vendor.h": "c",
     "zb_config_platform.h": "c",
-    "esp_zigbee_attribute.h": "c"
+    "esp_zigbee_attribute.h": "c",
+    "esp_timer.h": "c",
+    "zboss_api.h": "c",
+    "zlib.h": "c",
+    "string.h": "c",
+    "ota.h": "c",
+    "esp_err.h": "c",
+    "light_driver.h": "c",
+    "freertos.h": "c",
+    "esp_ota_ops.h": "c",
+    "esp_bootloader_desc.h": "c",
+    "esp_partition.h": "c"
   }
 }

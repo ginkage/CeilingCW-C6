@@ -1,11 +1,11 @@
+#include "light_driver.h"
+
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/ledc.h"
 #include "ha/esp_zigbee_ha_standard.h"
 #include "zcl/esp_zigbee_zcl_common.h"
 #include "zboss_api.h"
-
-#include "light_driver.h"
 
 #define LEDC_TIMER              LEDC_TIMER_0
 #define LEDC_MODE               LEDC_LOW_SPEED_MODE
@@ -25,7 +25,7 @@
 static const uint32_t max_duty = 8192;
 
 static bool current_power = ESP_ZB_ZCL_ON_OFF_ON_OFF_DEFAULT_VALUE;
-static uint8_t current_level = ESP_ZB_ZCL_LEVEL_CONTROL_CURRENT_LEVEL_DEFAULT_VALUE;
+static uint8_t current_level = 254;
 static uint16_t current_temperature = ESP_ZB_ZCL_COLOR_CONTROL_COLOR_TEMPERATURE_DEF_VALUE;
 static enum zb_zcl_on_off_start_up_on_off_e start_power = ZB_ZCL_ON_OFF_START_UP_ON_OFF_IS_ON;
 static uint16_t start_temperature = ZB_ZCL_COLOR_CONTROL_START_UP_COLOR_TEMPERATURE_USE_PREVIOUS_VALUE;
@@ -55,8 +55,8 @@ static void update_duty()
             else
                 ww = (current_temperature - 150) * max_duty / 200;
         }
-        cw = cw * current_level / 255;
-        ww = ww * current_level / 255;
+        cw = cw * current_level / 254;
+        ww = ww * current_level / 254;
 
         set_duty(LEDC_CHANNEL_CW, cw);
         set_duty(LEDC_CHANNEL_WW, ww);
@@ -149,6 +149,17 @@ void light_set_startup_on_off(uint8_t startup)
 
 void light_set_level(uint8_t level)
 {
+    if (level == 0) {
+        // Turn off, keep the stored brightness level
+        light_set_on_off(false);
+        return;
+    }
+    if (level == 0xFF) {
+        // Turn on to the stored brightness level
+        light_set_on_off(true);
+        return;
+    }
+
     ESP_LOGI(TAG, "New brightness: %d", (int)level);
     current_level = level;
     save_state();
