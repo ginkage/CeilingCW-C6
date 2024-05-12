@@ -2,7 +2,7 @@
   "C_Cpp.intelliSenseEngine": "default",
   "idf.adapterTargetName": "esp32c6",
   "idf.flashType": "UART",
-  "idf.portWin": "COM11",
+  "idf.portWin": "COM7",
   "files.associations": {
     "esp_zigbee_ha_standard.h": "c",
     "esp_zb_light.h": "c",
