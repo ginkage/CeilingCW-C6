@@ -1,9 +1,9 @@
 | Supported Targets | ESP32-C6 | ESP32-H2 |
 | ----------------- | -------- | -------- |
 
-# Light Bulb Example
+# Ceiling Light based on WT0132C6-S5 module
 
-This test code shows how to configure Zigbee end device and use it as HA on/off light bulb.
+This code shows how to configure Zigbee router device and use it as HA CW light.
 
 The ESP Zigbee SDK provides more examples and tools for productization:
 * [ESP Zigbee SDK Docs](https://docs.espressif.com/projects/esp-zigbee-sdk)
@@ -11,9 +11,8 @@ The ESP Zigbee SDK provides more examples and tools for productization:
 
 ## Hardware Required
 
-* One development board with ESP32-H2 SoC acting as Zigbee end-device (loaded with HA_on_off_light example)
-* A USB cable for power supply and programming
-* Choose another ESP32-H2 as Zigbee coordinator (see [HA_on_off_switch example](../HA_on_off_switch))
+* WT0132C6-S5 module acting as Zigbee router-device (loaded with this firmware)
+* A CH340G-based programmer
 
 ## Configure the project
 
@@ -56,7 +55,7 @@ I (35534) ESP_ZB_COLOR_DIMM_LIGHT: Light sets to On
 
 ## Light Control Functions
 
- * By toggling the switch button (BOOT) on the ESP32-H2 board loaded with the `HA_on_off_switch` example, the LED on this board loaded with `HA_on_off_light` example will be on and off.
+ * GPIO pins 10 and 5 are used for PWM control of cold and warm white LED strips.
 
 ## Troubleshooting
 
